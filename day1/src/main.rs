@@ -1,12 +1,25 @@
-use std::fs;
+use aoc_lib::AocImplementation;
 
 fn main() {
-    let contents = fs::read_to_string("input.txt").expect("Failed to read input file");
+    let day1 = Day1 {};
 
-    let total_fuel: i32 = contents.split('\n').map(|line| line.parse().unwrap()).map(calculate_fuel).map(|fuel| fuel + calculate_additional_fuel(fuel)).sum();
+    day1.start(1)
+}
 
-    println!("total {}", total_fuel)
+struct Day1 {}
 
+impl AocImplementation<i32> for Day1 {
+    fn process_input(&self, input: &str) -> Vec<i32> {
+        input.split('\n').map(|line| line.parse().unwrap()).collect()
+    }
+
+    fn execute(&self, input: Vec<i32>) -> Option<i32> {
+        let answer = input.into_iter()
+            .map(calculate_fuel)
+            .map(|fuel| fuel + calculate_additional_fuel(fuel))
+            .sum();
+        Some(answer)
+    }
 }
 
 fn calculate_fuel(mass: i32) -> i32 {
@@ -30,6 +43,7 @@ mod tests {
 
     mod calculate_fuel_for_mass {
         use super::*;
+
         #[test]
         fn example1() {
             let result = calculate_fuel(12);
@@ -60,7 +74,7 @@ mod tests {
 
         #[test]
         fn example1() {
-            let result= calculate_additional_fuel(2) + 2;
+            let result = calculate_additional_fuel(2) + 2;
             assert_eq!(result, 2);
         }
 
