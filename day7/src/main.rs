@@ -1,6 +1,7 @@
 use aoc_lib::AocImplementation;
 use std::collections::VecDeque;
 use itertools::Itertools;
+use std::ops::Range;
 
 fn main() {
     let day7 = Day7 {
@@ -19,7 +20,7 @@ impl AocImplementation<i32> for Day7 {
     }
 
     fn execute(&self, program: Vec<i32>) -> Option<i32> {
-        let result = find_max_phase_signal(program);
+        let result = find_max_phase_signal(program, (5..=9).collect());
         Some(result.signal)
     }
 }
@@ -55,7 +56,7 @@ impl Parameter {
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Instruction {
     Add {
         left: Parameter,
@@ -300,6 +301,15 @@ impl From<usize>  for Inputs {
     }
 }
 
+impl From<(i32, i32)> for Inputs {
+    fn from(v: (i32, i32)) -> Self {
+        let mut input = Inputs::new();
+        input.push(v.0);
+        input.push(v.1);
+        input
+    }
+}
+
 fn run_intcode(mut program: Vec<i32>, mut input: Inputs) -> ExecutionResult {
     let end = program.len() as i32;
     let mut outputs = Vec::new();
@@ -327,22 +337,110 @@ struct PhaseResult {
     signal: i32,
 }
 
-fn run_for_phase_signal(sequence: &Vec<usize>, program: Vec<i32>) -> i32 {
-    let mut next_input = 0;
-    for i in sequence {
-        let mut inputs: Inputs = (*i).into();
-        inputs.push(next_input);
-        let result = run_intcode(program.clone(), inputs);
-        next_input = *result.outputs.last().unwrap();
+#[derive(Debug)]
+struct Amplifier {
+    program: Vec<i32>,
+    instruction_pointer: i32,
+    name: String,
+    initial: bool
+}
 
+enum AmplifierResult {
+    Output(i32),
+    Halt,
+}
+
+impl Amplifier {
+    fn new(program: Vec<i32>, name: char) -> Amplifier {
+        Amplifier {
+            program,
+            instruction_pointer: 0,
+            name: name.to_string(),
+            initial: true
+        }
     }
+
+    fn run(&mut self, phase: i32, input: i32) -> AmplifierResult {
+        let end = self.program.len() as i32;
+        let mut outputs = Vec::new();
+
+        while self.instruction_pointer < end {
+            let op = self.program[self.instruction_pointer as usize];
+            let instruction = Instruction::parse(&self.instruction_pointer, &self.program);
+
+            let mut inputs = if self.initial {
+                (phase, input).into()
+            } else {
+                input.into()
+            };
+            self.initial = false;
+
+            let result = instruction.execute(&mut self.program, &mut inputs, &mut outputs);
+            match instruction {
+                Instruction::Output {..} => {
+                    match result {
+                        InstructionResult::Continue(by) => self.instruction_pointer += by,
+                        _ => panic!("Output is supposed to have a continue result")
+                    }
+
+                    let o = *outputs.last().unwrap();
+                    return AmplifierResult::Output(o)
+                }
+                _ =>  {
+                    match result {
+                        InstructionResult::Halt => return AmplifierResult::Halt,
+                        InstructionResult::Continue(by) => self.instruction_pointer += by,
+                        InstructionResult::GoTo(target) => self.instruction_pointer = target,
+                    }
+                }
+            }
+
+
+        }
+
+        unreachable!()
+    }
+}
+
+fn run_for_phase_signal(sequence: &Vec<usize>, program: Vec<i32>) -> i32 {
+    let mut amplifiers: Vec<Amplifier> = (b'A'..=b'E').map(char::from).map(|name| Amplifier::new(program.clone(), name)).collect();
+
+//        println!("amps: {:#?}", amplifiers);
+    let mut last_e_output = 0;
+    let mut next_input = 0;
+    for (index, phase) in sequence.iter().enumerate().cycle() {
+        let amp = &mut amplifiers[index];
+//        println!("Running amp: {} with input {} and phase {}", amp.name, next_input, phase);
+        let result = amp.run(*phase as i32, next_input);
+        match result {
+            AmplifierResult::Output(o) => {
+//                println!("Got output: {} from {}", o, amp.name);
+                if amp.name == "E" {
+                    last_e_output = o;
+                }
+                next_input = o;
+            },
+            AmplifierResult::Halt => {
+                println!("Got halt instruction, last from e: {}", last_e_output);
+                return last_e_output
+            },
+        }
+    }
+
+//    for i in sequence {
+//        let mut inputs: Inputs = (*i).into();
+//        inputs.push(next_input);
+//        let result = run_intcode(program.clone(), inputs);
+//        next_input = *result.outputs.last().unwrap();
+//
+//    }
 
     next_input
 }
 
-fn find_max_phase_signal(program: Vec<i32>) -> PhaseResult {
+fn find_max_phase_signal(program: Vec<i32>, sequence: Vec<usize>) -> PhaseResult  {
     let amplifier_count = 5;
-    let max_sequence = (0..amplifier_count).permutations(amplifier_count).max_by_key(|sequence| {
+    let max_sequence = sequence.into_iter().permutations(amplifier_count).max_by_key(|sequence| {
         run_for_phase_signal(sequence, program.clone())
     }).unwrap();
 
@@ -362,25 +460,41 @@ mod tests {
     mod max_phase_signal {
         use super::*;
 
+//        #[test]
+//        fn example1() {
+//            let result = find_max_phase_signal(vec![3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0], (0..5).collect());
+//            assert_eq!(result.signal, 43210);
+//            assert_eq!(result.sequence, vec![4,3,2,1,0])
+//        }
+//
+//        #[test]
+//        fn example2() {
+//            let result = find_max_phase_signal(vec![3,23,3,24,1002,24,10,24,1002,23,-1,23,101,5,23,23,1,24,23,23,4,23,99,0,0], (0..5).collect());
+//            assert_eq!(result.signal, 54321);
+//            assert_eq!(result.sequence, vec![0,1,2,3,4])
+//        }
+//
+//        #[test]
+//        fn example3() {
+//            let result = find_max_phase_signal(vec![3,31,3,32,1002,32,10,32,1001,31,-2,31,1007,31,0,33,1002,33,7,33,1,33,31,31,1,32,31,31,4,31,99,0,0,0], (0..5).collect());
+//            assert_eq!(result.signal, 65210);
+//            assert_eq!(result.sequence, vec![1,0,4,3,2])
+//        }
+
         #[test]
-        fn example1() {
-            let result = find_max_phase_signal(vec![3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0]);
-            assert_eq!(result.signal, 43210);
-            assert_eq!(result.sequence, vec![4,3,2,1,0])
+        fn example4() {
+            let result = find_max_phase_signal(vec![3,26,1001,26,-4,26,3,27,1002,27,2,27,1,27,26,27,4,27,1001,28,-1,28,1005,28,6,99,0,0,5], (5..=9).collect());
+            assert_eq!(result.signal, 139629729);
+            assert_eq!(result.sequence, vec![9,8,7,6,5]);
         }
 
         #[test]
-        fn example2() {
-            let result = find_max_phase_signal(vec![3,23,3,24,1002,24,10,24,1002,23,-1,23,101,5,23,23,1,24,23,23,4,23,99,0,0]);
-            assert_eq!(result.signal, 54321);
-            assert_eq!(result.sequence, vec![0,1,2,3,4])
-        }
-
-        #[test]
-        fn example3() {
-            let result = find_max_phase_signal(vec![3,31,3,32,1002,32,10,32,1001,31,-2,31,1007,31,0,33,1002,33,7,33,1,33,31,31,1,32,31,31,4,31,99,0,0,0]);
-            assert_eq!(result.signal, 65210);
-            assert_eq!(result.sequence, vec![1,0,4,3,2])
+        fn example5() {
+            let result = find_max_phase_signal(vec![3,52,1001,52,-5,52,3,53,1,52,56,54,1007,54,5,55,1005,55,26,1001,54,
+                                                    -5,54,1105,1,12,1,53,54,53,1008,54,0,55,1001,55,1,55,2,53,55,53,4,
+                                                    53,1001,56,-1,56,1005,56,6,99,0,0,0,0,10], (5..=9).collect());
+            assert_eq!(result.signal, 18216);
+            assert_eq!(result.sequence, vec![9,7,8,5,6]);
         }
 
     }
